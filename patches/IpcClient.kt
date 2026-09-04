@@ -7,23 +7,20 @@ import java.net.Socket
 
 // Android-side TCP server transport.
 //
-// One-way mode for Wevo:
-//   PC provider -> adb forward -> PcmRingBuffer -> AudioRecord injection
+// Direct LAN / USB-tether network mode for Wevo:
+//   PC provider -> phone IP:38673 -> PcmRingBuffer -> AudioRecord injection
 //
-// We intentionally do NOT send the real phone microphone back to the PC.
-// The reverse/uplink direction is unnecessary for this use case and can make
-// a long-lived adb-forward socket contend with other ADB traffic (scrcpy/shell).
+// No adb forward/reverse is used for the audio stream, so ADB remains free for
+// scrcpy, shell commands and logcat. Uplink from the phone mic is disabled.
 internal object IpcClient {
 
     private const val TAG = "XMicIpcClient"
-    private const val HOST = "127.0.0.1"
+    private const val HOST = "0.0.0.0"
     private const val PORT = 38673
     private const val READ_CHUNK = 4096
 
     @Volatile private var started = false
 
-    // True while a PC provider is connected. The hook uses this to mute the
-    // real microphone if the injected PCM buffer temporarily runs empty.
     @Volatile var muteRealMic: Boolean = false
         private set
 
@@ -51,7 +48,7 @@ internal object IpcClient {
                 server = ServerSocket()
                 server.reuseAddress = true
                 server.bind(InetSocketAddress(HOST, PORT))
-                Log.i(TAG, "Listening on $HOST:$PORT (adb forward one-way mode)")
+                Log.i(TAG, "Listening on $HOST:$PORT (direct one-way mode, no adb tunnel)")
 
                 while (true) {
                     val socket = server.accept()
@@ -73,7 +70,7 @@ internal object IpcClient {
         try {
             socket.tcpNoDelay = true
             socket.receiveBufferSize = 64 * 1024
-            Log.i(TAG, "Provider connected from ${socket.inetAddress.hostAddress}:${socket.port} (one-way)")
+            Log.i(TAG, "Provider connected from ${socket.inetAddress.hostAddress}:${socket.port} (direct one-way)")
             muteRealMic = true
 
             val input = socket.inputStream
