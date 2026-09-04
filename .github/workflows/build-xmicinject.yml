@@ -21,6 +21,9 @@ jobs:
       - name: Clone upstream XMicInject
         run: git clone --depth 1 https://github.com/n00b-labs/XMicInject.git upstream
 
+      - name: Apply Android-side server transport patch
+        run: cp patches/IpcClient.kt upstream/app/src/main/java/com/xmicinject/IpcClient.kt
+
       - name: Make Gradle wrapper executable
         run: chmod +x upstream/gradlew
 
@@ -29,11 +32,11 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp upstream/app/build/outputs/apk/debug/app-debug.apk XMicInject.apk
+        run: cp upstream/app/build/outputs/apk/debug/app-debug.apk XMicInject-Forward.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: XMicInject-APK
-          path: XMicInject.apk
+          name: XMicInject-Forward-APK
+          path: XMicInject-Forward.apk
           if-no-files-found: error
