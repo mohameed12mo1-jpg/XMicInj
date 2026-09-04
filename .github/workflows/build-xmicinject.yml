@@ -21,7 +21,7 @@ jobs:
       - name: Clone upstream XMicInject
         run: git clone --depth 1 https://github.com/n00b-labs/XMicInject.git upstream
 
-      - name: Apply Android-side direct one-way server transport patch
+      - name: Apply Android-side direct V4 transport patch
         run: cp patches/IpcClient.kt upstream/app/src/main/java/com/xmicinject/IpcClient.kt
 
       - name: Apply Wevo native AudioRecord hook patch
@@ -35,11 +35,11 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp upstream/app/build/outputs/apk/debug/app-debug.apk XMicInject-Direct-NativeRead-OneWay-V3.apk
+        run: cp upstream/app/build/outputs/apk/debug/app-debug.apk XMicInject-Direct-NativeRead-OneWay-V4.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: XMicInject-Direct-NativeRead-OneWay-V3-APK
-          path: XMicInject-Direct-NativeRead-OneWay-V3.apk
+          name: XMicInject-Direct-NativeRead-OneWay-V4-APK
+          path: XMicInject-Direct-NativeRead-OneWay-V4.apk
           if-no-files-found: error
