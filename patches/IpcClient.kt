@@ -4,6 +4,7 @@ import android.util.Log
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 
 // Android-side TCP server transport.
 //
@@ -12,12 +13,18 @@ import java.net.Socket
 //
 // No adb forward/reverse is used for the audio stream, so ADB remains free for
 // scrcpy, shell commands and logcat. Uplink from the phone mic is disabled.
+//
+// V4 recovery behavior:
+// If Wi-Fi sleeps or a provider socket becomes half-open, input.read() must not
+// block forever. A short read timeout closes stale clients so the accept loop
+// can immediately take the provider's reconnect instead of filling the backlog.
 internal object IpcClient {
 
     private const val TAG = "XMicIpcClient"
     private const val HOST = "0.0.0.0"
     private const val PORT = 38673
     private const val READ_CHUNK = 4096
+    private const val CLIENT_READ_TIMEOUT_MS = 5000
 
     @Volatile private var started = false
 
@@ -48,7 +55,7 @@ internal object IpcClient {
                 server = ServerSocket()
                 server.reuseAddress = true
                 server.bind(InetSocketAddress(HOST, PORT))
-                Log.i(TAG, "Listening on $HOST:$PORT (direct one-way mode, no adb tunnel)")
+                Log.i(TAG, "Listening on $HOST:$PORT (direct one-way V4, no adb tunnel)")
 
                 while (true) {
                     val socket = server.accept()
@@ -69,8 +76,10 @@ internal object IpcClient {
     private fun handleClient(socket: Socket) {
         try {
             socket.tcpNoDelay = true
+            socket.keepAlive = true
             socket.receiveBufferSize = 64 * 1024
-            Log.i(TAG, "Provider connected from ${socket.inetAddress.hostAddress}:${socket.port} (direct one-way)")
+            socket.soTimeout = CLIENT_READ_TIMEOUT_MS
+            Log.i(TAG, "Provider connected from ${socket.inetAddress.hostAddress}:${socket.port} (direct one-way V4)")
             muteRealMic = true
 
             val input = socket.inputStream
@@ -80,6 +89,8 @@ internal object IpcClient {
                 if (n <= 0) break
                 PcmRingBuffer.write(buf, 0, n)
             }
+        } catch (t: SocketTimeoutException) {
+            Log.w(TAG, "Provider stalled for ${CLIENT_READ_TIMEOUT_MS}ms; closing stale socket")
         } catch (t: Throwable) {
             Log.w(TAG, "Provider connection ended: ${t.message}")
         } finally {
