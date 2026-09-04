@@ -24,6 +24,9 @@ jobs:
       - name: Apply Android-side server transport patch
         run: cp patches/IpcClient.kt upstream/app/src/main/java/com/xmicinject/IpcClient.kt
 
+      - name: Apply Wevo native AudioRecord hook patch
+        run: cp patches/XMicHook.kt upstream/app/src/main/java/com/xmicinject/XMicHook.kt
+
       - name: Make Gradle wrapper executable
         run: chmod +x upstream/gradlew
 
@@ -32,11 +35,11 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp upstream/app/build/outputs/apk/debug/app-debug.apk XMicInject-Forward.apk
+        run: cp upstream/app/build/outputs/apk/debug/app-debug.apk XMicInject-Forward-NativeRead.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: XMicInject-Forward-APK
-          path: XMicInject-Forward.apk
+          name: XMicInject-Forward-NativeRead-APK
+          path: XMicInject-Forward-NativeRead.apk
           if-no-files-found: error
