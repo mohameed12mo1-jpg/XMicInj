@@ -1,23 +1,18 @@
 package com.xmicinject
 
 import android.util.Log
-import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 
 // Android-side TCP server transport.
 //
-// The original XMicInject transport made the injected app connect OUT to
-// 127.0.0.1:38673 and relied on `adb reverse`. On some devices/app UIDs that
-// loopback listener is not reachable from the app process even though shell/root
-// can reach it. This variant flips the direction:
+// One-way mode for Wevo:
+//   PC provider -> adb forward -> PcmRingBuffer -> AudioRecord injection
 //
-//   PC provider -> adb forward tcp:38673 tcp:38673 -> this ServerSocket
-//
-// The socket remains full duplex:
-//   input  : translated PCM from provider -> PcmRingBuffer (inject)
-//   output : real mic uplink from hooks    -> provider
+// We intentionally do NOT send the real phone microphone back to the PC.
+// The reverse/uplink direction is unnecessary for this use case and can make
+// a long-lived adb-forward socket contend with other ADB traffic (scrcpy/shell).
 internal object IpcClient {
 
     private const val TAG = "XMicIpcClient"
@@ -26,10 +21,9 @@ internal object IpcClient {
     private const val READ_CHUNK = 4096
 
     @Volatile private var started = false
-    @Volatile private var output: OutputStream? = null
 
     // True while a PC provider is connected. The hook uses this to mute the
-    // real microphone when the injected PCM buffer temporarily runs empty.
+    // real microphone if the injected PCM buffer temporarily runs empty.
     @Volatile var muteRealMic: Boolean = false
         private set
 
@@ -45,14 +39,9 @@ internal object IpcClient {
         }
     }
 
+    // Uplink intentionally disabled in one-way mode.
     fun write(data: ByteArray) {
-        output?.let { stream ->
-            runCatching {
-                stream.write(data)
-            }.onFailure {
-                output = null
-            }
-        }
+        // no-op
     }
 
     private fun serverLoop() {
@@ -62,7 +51,7 @@ internal object IpcClient {
                 server = ServerSocket()
                 server.reuseAddress = true
                 server.bind(InetSocketAddress(HOST, PORT))
-                Log.i(TAG, "Listening on $HOST:$PORT (adb forward mode)")
+                Log.i(TAG, "Listening on $HOST:$PORT (adb forward one-way mode)")
 
                 while (true) {
                     val socket = server.accept()
@@ -72,7 +61,6 @@ internal object IpcClient {
                 Log.w(TAG, "Server failed: ${t.message}")
             } finally {
                 muteRealMic = false
-                output = null
                 PcmRingBuffer.clear()
                 UplinkSender.reset()
                 runCatching { server?.close() }
@@ -84,8 +72,8 @@ internal object IpcClient {
     private fun handleClient(socket: Socket) {
         try {
             socket.tcpNoDelay = true
-            Log.i(TAG, "Provider connected from ${socket.inetAddress.hostAddress}:${socket.port}")
-            output = socket.outputStream
+            socket.receiveBufferSize = 64 * 1024
+            Log.i(TAG, "Provider connected from ${socket.inetAddress.hostAddress}:${socket.port} (one-way)")
             muteRealMic = true
 
             val input = socket.inputStream
@@ -99,7 +87,6 @@ internal object IpcClient {
             Log.w(TAG, "Provider connection ended: ${t.message}")
         } finally {
             muteRealMic = false
-            output = null
             PcmRingBuffer.clear()
             UplinkSender.reset()
             runCatching { socket.close() }
