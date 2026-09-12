@@ -56,7 +56,10 @@ class XMicHook : IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(AudioRecord::class.java, "startRecording", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val record = param.thisObject as? AudioRecord ?: return
-                    Log.i(TAG, "AudioRecord start: pkg=$pkg source=${runCatching { record.audioSource }.getOrDefault(-1)} sampleRate=${sampleRate(record)}Hz channels=${channelCount(record)}")
+                    // Drop audio queued before Wevo actually starts recording so the
+                    // injected stream starts from "now" instead of stale buffered PCM.
+                    LowLatencyPcmRingBuffer.clear()
+                    Log.i(TAG, "AudioRecord start: cleared low-latency buffer; pkg=$pkg source=${runCatching { record.audioSource }.getOrDefault(-1)} sampleRate=${sampleRate(record)}Hz channels=${channelCount(record)}")
                 }
             })
         }.onFailure {
@@ -253,13 +256,13 @@ class XMicHook : IXposedHookLoadPackage {
     private fun injectBytes(dst: ByteArray, offset: Int, count: Int, sampleRateHz: Int): Boolean {
         if (offset < 0 || count <= 0 || offset >= dst.size) return false
         val safeCount = minOf(count, dst.size - offset)
-        if (sampleRateHz == PcmRingBuffer.SAMPLE_RATE_HZ) {
-            return PcmRingBuffer.readBytes(dst, offset, safeCount)
+        if (sampleRateHz == LowLatencyPcmRingBuffer.SAMPLE_RATE_HZ) {
+            return LowLatencyPcmRingBuffer.readBytes(dst, offset, safeCount)
         }
-        val srcBytes = AudioResampler.sourceBytesNeeded(safeCount, sampleRateHz, PcmRingBuffer.SAMPLE_RATE_HZ)
+        val srcBytes = AudioResampler.sourceBytesNeeded(safeCount, sampleRateHz, LowLatencyPcmRingBuffer.SAMPLE_RATE_HZ)
         val tmp = ByteArray(srcBytes)
-        if (!PcmRingBuffer.readBytes(tmp, 0, srcBytes)) return false
-        val out = AudioResampler.resampleBytes(tmp, 0, srcBytes, PcmRingBuffer.SAMPLE_RATE_HZ, sampleRateHz)
+        if (!LowLatencyPcmRingBuffer.readBytes(tmp, 0, srcBytes)) return false
+        val out = AudioResampler.resampleBytes(tmp, 0, srcBytes, LowLatencyPcmRingBuffer.SAMPLE_RATE_HZ, sampleRateHz)
         System.arraycopy(out, 0, dst, offset, minOf(out.size, safeCount))
         return true
     }
@@ -267,13 +270,13 @@ class XMicHook : IXposedHookLoadPackage {
     private fun injectShorts(dst: ShortArray, offset: Int, count: Int, sampleRateHz: Int): Boolean {
         if (offset < 0 || count <= 0 || offset >= dst.size) return false
         val safeCount = minOf(count, dst.size - offset)
-        if (sampleRateHz == PcmRingBuffer.SAMPLE_RATE_HZ) {
-            return PcmRingBuffer.readShorts(dst, offset, safeCount)
+        if (sampleRateHz == LowLatencyPcmRingBuffer.SAMPLE_RATE_HZ) {
+            return LowLatencyPcmRingBuffer.readShorts(dst, offset, safeCount)
         }
-        val srcCount = AudioResampler.sourceSamplesNeeded(safeCount, sampleRateHz, PcmRingBuffer.SAMPLE_RATE_HZ)
+        val srcCount = AudioResampler.sourceSamplesNeeded(safeCount, sampleRateHz, LowLatencyPcmRingBuffer.SAMPLE_RATE_HZ)
         val tmp = ShortArray(srcCount)
-        if (!PcmRingBuffer.readShorts(tmp, 0, srcCount)) return false
-        val out = AudioResampler.resampleShorts(tmp, 0, srcCount, PcmRingBuffer.SAMPLE_RATE_HZ, sampleRateHz)
+        if (!LowLatencyPcmRingBuffer.readShorts(tmp, 0, srcCount)) return false
+        val out = AudioResampler.resampleShorts(tmp, 0, srcCount, LowLatencyPcmRingBuffer.SAMPLE_RATE_HZ, sampleRateHz)
         System.arraycopy(out, 0, dst, offset, minOf(out.size, safeCount))
         return true
     }
@@ -289,7 +292,7 @@ class XMicHook : IXposedHookLoadPackage {
 
     private fun sampleRate(record: AudioRecord): Int {
         val raw = runCatching { record.sampleRate }.getOrDefault(-1)
-        return raw.takeIf { it > 0 } ?: PcmRingBuffer.SAMPLE_RATE_HZ
+        return raw.takeIf { it > 0 } ?: LowLatencyPcmRingBuffer.SAMPLE_RATE_HZ
     }
 
     private fun channelCount(record: AudioRecord): Int =
