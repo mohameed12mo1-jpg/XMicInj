@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 // Android-side TCP server transport.
 //
-// Direct LAN / USB-tether network mode for Wevo:
+// Direct LAN / USB-tether network mode for Liqaa:
 //   PC provider -> phone IP:38673 -> LowLatencyPcmRingBuffer -> AudioRecord injection
 //
 // No adb forward/reverse is used for the audio stream, so ADB remains free for
