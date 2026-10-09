@@ -16,8 +16,9 @@ class XMicHook : IXposedHookLoadPackage {
 
     private companion object {
         private const val TAG = "XMicHook"
-        private const val WEVO = "com.all2chat.voip"
-        private val SKIP_PACKAGES = setOf("com.xmicinject", "android")
+        private const val LIQAA = "com.lgana.voip"
+        private const val MODULE_PACKAGE = "com.lgana.xmicinject"
+        private val SKIP_PACKAGES = setOf("com.xmicinject", MODULE_PACKAGE, "android")
         private val MIC_SOURCES = setOf(
             MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
@@ -33,22 +34,17 @@ class XMicHook : IXposedHookLoadPackage {
         if (uid in 0 until Process.FIRST_APPLICATION_UID) return
 
         val pkg = lpparam.packageName
-        Log.i(TAG, "Hook loaded: $pkg")
+        if (pkg != LIQAA) return
+
+        Log.i(TAG, "Liqaa hook loaded: $pkg")
         IpcClient.startOnce()
 
         val injectionLogged = AtomicBoolean(false)
         val muteLogged = AtomicBoolean(false)
 
-        // Wevo is using a native recording path on this device. Hook the hidden
-        // native AudioRecord read methods directly so Java wrappers cannot bypass us.
-        if (pkg == WEVO) {
-            hookNativeReads(pkg, injectionLogged, muteLogged)
-            hookStartRecording(pkg)
-        } else {
-            hookByteArray(lpparam.classLoader, pkg, injectionLogged, muteLogged)
-            hookShortArray(lpparam.classLoader, pkg, injectionLogged, muteLogged)
-            hookByteBuffer(lpparam.classLoader, pkg, injectionLogged, muteLogged)
-        }
+        // Liqaa shares the Wevo-family AudioRecord path: hook native reads only.
+        hookNativeReads(pkg, injectionLogged, muteLogged)
+        hookStartRecording(pkg)
     }
 
     private fun hookStartRecording(pkg: String) {
@@ -56,7 +52,7 @@ class XMicHook : IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(AudioRecord::class.java, "startRecording", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val record = param.thisObject as? AudioRecord ?: return
-                    // Drop audio queued before Wevo actually starts recording so the
+                    // Drop audio queued before Liqaa actually starts recording so the
                     // injected stream starts from "now" instead of stale buffered PCM.
                     LowLatencyPcmRingBuffer.clear()
                     Log.i(TAG, "AudioRecord start: cleared low-latency buffer; pkg=$pkg source=${runCatching { record.audioSource }.getOrDefault(-1)} sampleRate=${sampleRate(record)}Hz channels=${channelCount(record)}")
